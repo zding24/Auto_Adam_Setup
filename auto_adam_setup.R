@@ -184,12 +184,24 @@ append_data <- function(df_name, df_list, prim_df, keys = c('STUDYID', 'USUBJID'
     
     # combine
     for (i in 1:length(df_list)){
-      df_all <- left_join(df_all, df_list[[i]], by = keys, 
-                          suffix = c(ifelse(i == 1, 
-                                            paste0('.', tolower(prim_df)), 
-                                            paste0('.', tolower(df_name[i-1]))), 
-                                     paste0('.', tolower(df_name[i]))))
-      print(paste0('Merge dataset: ', df_name[i], ' by ', paste(keys, collapse = ', ')))
+      if (toupper(substr(df_name[i], 1, 4)) == 'SUPP' | toupper(df_name[i]) %in% c('RELREC', 'ADSL')){
+        df_all <- left_join(df_all, df_list[[i]], by = keys, 
+                            suffix = c(ifelse(i == 1, 
+                                              paste0('.', tolower(prim_df)), 
+                                              paste0('.', tolower(df_name[i-1]))), 
+                                       paste0('.', tolower(df_name[i]))))
+        print(paste0('Merge dataset: ', df_name[i], ' by ', paste(keys, collapse = ', ')))
+      } else {
+        specific_key <- c(setNames(keys[1],keys[1]), setNames(keys[2],keys[2]), setNames(keys[3],keys[3]),
+                          setNames(paste0(toupper(df_name[i]), 'SEQ'), paste0(toupper(prim_df), 'SEQ')))
+        print(specific_key)
+        df_all <- left_join(df_all, df_list[[i]], by = specific_key, 
+                            suffix = c(ifelse(i == 1, 
+                                              paste0('.', tolower(prim_df)), 
+                                              paste0('.', tolower(df_name[i-1]))), 
+                                       paste0('.', tolower(df_name[i]))))
+        print(paste0('Merge dataset: ', df_name[i], ' by ', paste(specific_key, collapse = ', ')))
+      }
     }
     return(df_all)
   }
