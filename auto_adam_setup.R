@@ -71,6 +71,7 @@ auto_var_process <- function(df, spec){
 }
 
 append_data <- function(df_name, df_list, prim_df, keys = c('STUDYID', 'USUBJID', 'SUBJID')){
+  #check number of datasets read
   if (length(df_list) == 0){
     stop('No data to append')
   } else if (length(df_list) == 1){
@@ -84,8 +85,12 @@ append_data <- function(df_name, df_list, prim_df, keys = c('STUDYID', 'USUBJID'
       stop('Primary datasets not defined')
     }
     print(paste0('Primary dataset for merge: ', prim_df))
+    
+    # remove primay data
     df_list[[which(tolower(df_vec) %in% tolower(prim_df))]] <- NULL
     df_vec <- df_vec[-which(tolower(df_vec) %in% tolower(prim_df))]
+    
+    # combine
     for (i in 1:length(df_list)){
       df_all <- left_join(df_all, df_list[[i]], by = keys, 
                           suffix = c(ifelse(i == 1, 
@@ -132,7 +137,7 @@ load_data <- function(adam_path, sdtm_path, df){
   }
 }
 
-adam_setup <- function(mode, compound, study, lock, domain, prim_df
+adam_setup <- function(mode, compound, study, lock, domain, prim_df,
                        env = 'MAC', spec_name = 'amba_adam_specs_lilly.xlsx'){
   library('tidyverse')
   library('haven') #Read SAS dataset
