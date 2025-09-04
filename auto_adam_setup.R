@@ -76,10 +76,16 @@ append_data <- function(df_name, df_list, prim_df, keys = c('STUDYID', 'USUBJID'
   } else if (length(df_list) == 1){
     return(df_list[[1]])
   } else {
-    df_all <- df_list[[which(tolower(df_vec) == tolower(prim_df))]]
+    if (length(prim_df) == 1){
+      df_all <- df_list[[which(tolower(df_vec) %in% tolower(prim_df))]]
+    } else if (length(prim_df) > 1){
+      df_all <- do.call(rbind, df_list[which(tolower(df_vec) %in% tolower(prim_df))])
+    } else {
+      stop('Primary datasets not defined')
+    }
     print(paste0('Primary dataset for merge: ', prim_df))
-    df_list[[which(tolower(df_vec) == tolower(prim_df))]] <- NULL
-    df_vec <- df_vec[-which(tolower(df_vec) == tolower(prim_df))]
+    df_list[[which(tolower(df_vec) %in% tolower(prim_df))]] <- NULL
+    df_vec <- df_vec[-which(tolower(df_vec) %in% tolower(prim_df))]
     for (i in 1:length(df_list)){
       df_all <- left_join(df_all, df_list[[i]], by = keys, 
                           suffix = c(ifelse(i == 1, 
@@ -93,7 +99,7 @@ append_data <- function(df_name, df_list, prim_df, keys = c('STUDYID', 'USUBJID'
 }
 
 load_data <- function(adam_path, sdtm_path, df){
-  if (nchar(df) >= 4 & substr(tolower(df), 1,2) == 'ad'){
+  if (nchar(df) >= 4 & substr(tolower(df), 1,2) == 'ad'){ #if the name of the data set start with AD, read as Adam
     df_path <- file.path(adam_path, paste0(tolower(df), '.sas7bdat'))
     flag <- 'adam'
   } else {
@@ -151,8 +157,9 @@ adam_setup <- function(mode, compound, study, lock, domain, prim_df
   spec<- read_excel(file.path(Spec_path, spec_name), sheet = toupper(domain)) %>%
     filter(is.na(REMOVE)) %>%
     arrange(as.numeric(ORDER))
-  
+  # read list of data sets needed from spec
   df_vec <- as.vector(na.exclude(unique(spec$SOURCE_DATASET)))
+  #load data
   df_list <- lapply(df_vec, function (x) load_data(Adam_path, Sdtm_path, x))
   df_all <- append_data(df_vec, df_list, prim_df)
   df_res_pred <- auto_var_process(df_all, spec)
