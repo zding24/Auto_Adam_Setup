@@ -92,12 +92,12 @@ append_data <- function(df_name, df_list, prim_df, keys = c('STUDYID', 'USUBJID'
   }
 }
 
-load_data <- function(adam_path, adtm_path, df){
+load_data <- function(adam_path, sdtm_path, df){
   if (nchar(df) >= 4 & substr(tolower(df), 1,2) == 'ad'){
     df_path <- file.path(adam_path, paste0(tolower(df), '.sas7bdat'))
     flag <- 'adam'
   } else {
-    df_path <- file.path(adtm_path, paste0(tolower(df), '.sas7bdat'))
+    df_path <- file.path(sdtm_path, paste0(tolower(df), '.sas7bdat'))
     flag <- 'sdtm'
   } 
   
