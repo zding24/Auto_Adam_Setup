@@ -5,6 +5,75 @@ lock = 'safety_review7'
 domain = 'adho'
 prim_df = 'ho'
 
+alg_datetime <- function(date_var){
+  if (all(is.na(date_var))){
+    log <- data.frame(Var = date_var, Action = NA)
+    return(list(NA, log))
+  } else if (is(date_var, 'Date')){
+    log <- data.frame(Var = date_var, Action = NA)
+    return(list(date_var, log))
+  } else if (is(date_var, 'POSIXct')){
+    log <- data.frame(Var = date_var, Action = NA)
+    return(list(date_var, log))
+  } else if (is(date_var, 'character')){
+    date_temp <- c()
+    log <- data.frame(Var = character(), Action = character())
+    for (i in 1:length(date_var)){
+      if (!is.na(ymd_hms(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (ymd_hms(date_var[i]))
+        log[i,2] <- 'Date time read as YMD_HMS'
+      } else if (!is.na(ymd_hm(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (ymd_hm(date_var[i]))
+        log[i,2] <- 'Date time read as YMD_HM'
+      } else if (!is.na(ymd_h(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (ymd_h(date_var[i]))
+        log[i,2] <- 'Date time read as YMD_H'
+      } else if (!is.na(ymd(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (ymd(date_var[i]))
+        log[i,2] <- 'Date time read as YMD'
+      } else if (!is.na(mdy_hms(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (mdy_hms(date_var[i]))
+        log[i,2] <- 'Date time read as MDY_HMS'
+      } else if (!is.na(mdy_hm(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (mdy_hm(date_var[i]))
+        log[i,2] <- 'Date time read as MDY_HM'
+      } else if (!is.na(mdy_h(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (mdy_h(date_var[i]))
+        log[i,2] <- 'Date time read as MDY_H'
+      } else if (!is.na(mdy(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (mdy(date_var[i]))
+        log[i,2] <- 'Date time read as MDY'
+      } else if (!is.na(dmy_hms(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (dmy_hms(date_var[i]))
+        log[i,2] <- 'Date time read as DMY_HMS'
+      } else if (!is.na(dmy_hm(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (dmy_hm(date_var[i]))
+        log[i,2] <- 'Date time read as DMY_HM'
+      } else if (!is.na(dmy_h(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (dmy_h(date_var[i]))
+        log[i,2] <- 'Date time read as DMY_H'
+      } else if (!is.na(dmy(date_var[i], quiet = TRUE))){
+        date_temp[i] <- (dmy(date_var[i]))
+        log[i,2] <- 'Date time read as DMY'
+      } else if (is.na(date_var[i])){
+        date_temp[i] <- NA
+        log[i,2] <- 'Date time read as NA'
+      } else {
+        warning(paste0('Date conversion failed for variable of type: ', class(date_var), ' with value: ', date_var[i]))
+        date_temp[i] <- NA
+        log[i,2] <- 'Date time conversion failed'
+      }
+    }
+    log[,1] <- date_var
+    return(list(date_temp, log))
+  } else {
+    warning(paste0('Date conversion failed for variable of type: ', class(date_var)))
+    log <- data.frame(Var = date_var, Action = NA)
+    return(list(NULL, log))
+  }
+}
+
+
 auto_var_mapping <- function(df, spec){
   spec_cut <- spec[spec$ORIGIN == 'Assigned',]
   for (i in 1:nrow(spec_cut)){
@@ -35,32 +104,54 @@ auto_var_mapping <- function(df, spec){
 }
 
 auto_var_process <- function(df, spec){
-  spec_cut <- spec[spec$ORIGIN == 'Predecessor',]
+  glob_log <<- list()
+  glob_log_id <- 1
+  var_log <- data.frame(Var = character(), Algorithm = character(), Action = character(), glob_log_id = integer(), Comment = character())
+  spec_cut <- spec[spec$ORIGIN %in% c('Predecessor', 'Derived'),]
   for (i in 1:nrow(spec_cut)){
     if (!is.na(spec_cut[i,'STUDY_SPECIFIC_ALGORITHM'])) {
       algorithm <- as.character(spec_cut[i,'STUDY_SPECIFIC_ALGORITHM'])
-      print('Using STUDY_SPECIFIC_ALGORITHM')
+      var_log[i, 'Var'] <- spec_cut[i, 'VARIABLE']
+      var_log[i, 'Algorithm'] <- 'STUDY_SPECIFIC_ALGORITHM'
     } else if (!is.na(spec_cut[i,'ANALYSIS_ALGORITHM'])){
       algorithm <- as.character(spec_cut[i,'ANALYSIS_ALGORITHM'])
-      print('Using ANALYSIS_ALGORITHM')
+      var_log[i, 'Var'] <- spec_cut[i, 'VARIABLE']
+      var_log[i, 'Algorithm'] <- 'ANALYSIS_ALGORITHM'
     } else {
       warning(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', 'Undefined'))
+      var_log[i, 'Var'] <- spec_cut[i, 'VARIABLE']
+      var_log[i, 'Algorithm'] <- 'Undefined'
       next
     }
-    print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
     
     if (grepl("^Copied from \\w+\\.\\w+\\.\\w+$", algorithm)){
+      print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][3]
       var_name <- strsplit(var_temp, '\\.')[[1]][3]
       #print(var_name)
       var_df <- strsplit(var_temp, '\\.')[[1]][2]
       res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
       df[[res_var_name]] <- df[[toupper(var_name)]]
+      var_log[i, 'Action'] <- paste0('Copied from ', var_name)
+      
     } else if(grepl("^Convert \\w+\\.\\w+\\.\\w+ to numeric datetime.", algorithm)){
+      print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][2]
       var_name <- strsplit(var_temp, '\\.')[[1]][3]
       res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
-      df[[res_var_name]] <- 
+      
+      df[[res_var_name]] <- alg_datetime(df[[toupper(var_name)]])[[1]]
+      
+      var_log[i, 'Action'] <- paste0('Value derived from: ', var_name)
+      glob_log[[glob_log_id]] <<- alg_datetime(df[[toupper(var_name)]])[[2]]
+      dt_frt <- unique(glob_log[[glob_log_id]]$Action)
+      var_log[i, 'Comment'] <-  paste(dt_frt, collapse = ", ")
+      if (length(dt_frt) > 1){
+        warning(paste0('Multiple formats detected for variable: ', res_var_name, ' - ', paste(dt_frt, collapse = '; ')))
+      }
+      var_log[i, 'glob_log_id'] <- glob_log_id
+      glob_log_id <- glob_log_id + 1
+      
     }
     
     else {
@@ -68,7 +159,7 @@ auto_var_process <- function(df, spec){
       next
     }
   }
-  return(df)
+  return(list(df, var_log))
 }
 
 append_data <- function(df_name, df_list, prim_df, keys = c('STUDYID', 'USUBJID', 'SUBJID')){
@@ -199,6 +290,6 @@ adam_setup <- function(mode, compound, study, lock, domain, prim_df,
   #load data
   df_list <- lapply(1:nrow(df_vec_df), function (x) load_data(Adam_path, Sdtm_path, df_vec_df[x,]))
   df_all <- append_data(df_vec_df$name, df_list, prim_df)
-  df_res_pred <- auto_var_process(df_all, spec)
+  df_res_pred_list <- auto_var_process(df_all, spec)
 }
 
