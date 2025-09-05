@@ -88,33 +88,65 @@ alg_datetime <- function(date_var){
   }
 }
 
-ut_auto_var_mapping <- function(df, spec){
+alg_mapping <- function(sub_var, decode_var, codelist_defined, df){
+  sub_var_code <- ifelse(endsWith(sub_var, '.res'), substr(sub_var, 1, nchar(sub_var)-4), sub_var)
+  #decode_var_code <- ifelse(endsWith(decode_var, '.res'), substr(decode_var, 1, nchar(decode_var)-4), decode_var)
+  
+  codelist_defined_temp <- codelist_defined %>%
+    filter(VARIABLE == sub_var_code) %>%
+    select(SUBMISSION_VALUE, DECODE) %>%
+    mutate(DECODE = gsub(' ', '',as.character(DECODE))) %>%
+    rename(!!decode_var := DECODE) 
+  
+  df[[decode_var]] <- gsub(' ', '',as.character(df[[decode_var]]))
+  df_merge <- left_join(df, codelist_defined_temp, by = decode_var)
+  return(df_merge$SUBMISSION_VALUE)
+}
+
+ut_auto_var_mapping <- function(df, spec, codelist_defined){
+  glob_mapping_log <<- list()
+  glob_mapping_log_id <<- 1
+  var_log <- data.frame(Var = character(), Algorithm_type = character(), Algorithm = character(), Action = character(), glob_log_id = integer(), Comment = character())
   spec_cut <- spec[spec$ORIGIN == 'Assigned',]
   for (i in 1:nrow(spec_cut)){
     if (!is.na(spec_cut[i,'STUDY_SPECIFIC_ALGORITHM'])) {
       algorithm <- as.character(spec_cut[i,'STUDY_SPECIFIC_ALGORITHM'])
-      print('Using STUDY_SPECIFIC_ALGORITHM')
+      var_log[i, 'Var'] <- spec_cut[i, 'VARIABLE']
+      var_log[i, 'Algorithm_type'] <- 'STUDY_SPECIFIC_ALGORITHM'
+      var_log[i, 'Algorithm'] <- algorithm
     } else if (!is.na(spec_cut[i,'ANALYSIS_ALGORITHM'])){
       algorithm <- as.character(spec_cut[i,'ANALYSIS_ALGORITHM'])
-      print('Using ANALYSIS_ALGORITHM')
+      var_log[i, 'Var'] <- spec_cut[i, 'VARIABLE']
+      var_log[i, 'Algorithm_type'] <- 'ANALYSIS_ALGORITHM'
+      var_log[i, 'Algorithm'] <- algorithm
     } else {
       warning(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', 'Undefined'))
+      var_log[i, 'Var'] <- spec_cut[i, 'VARIABLE']
+      var_log[i, 'Algorithm_type'] <- 'Undefined'
       next
     }
-    print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
+    algorithm <- sub("[\r\n]+$", "", algorithm) #remove trailing period if any
     
-    if (grepl("^One to one mapping of \\w+ as defined in the codelist$", algorithm)){
-      var_temp <- strsplit(algorithm, ' ')[[1]][3]
-      var_name <- strsplit(var_temp, '\\.')[[1]][3]
+    if (grepl("^One to one mapping of \\w+ as defined in the codelist.$", algorithm)){
+      var_temp <- strsplit(algorithm, ' ')[[1]][6]
+      var_name <- ifelse(paste0(var_temp, '.res') %in% colnames(df), paste0(var_temp, '.res'), var_temp)
       #print(var_name)
-      var_df <- strsplit(var_temp, '\\.')[[1]][2]
       res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
-      df[[res_var_name]] <- df[[toupper(var_name)]]
+      df[[res_var_name]] <- alg_mapping(res_var_name, var_name, codelist_defined, df)
+      var_log[i, 'Action'] <- paste0('Submission value derived by left join codelist with DECODE = ', var_name)
+    } else if (grepl("^One to one numeric mapping of \\w+ as defined in the code list.$", algorithm)){
+      var_temp <- strsplit(algorithm, ' ')[[1]][7]
+      var_name <- ifelse(paste0(var_temp, '.res') %in% colnames(df), paste0(var_temp, '.res'), var_temp)
+      #print(var_name)
+      res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
+      df[[res_var_name]] <- alg_mapping(res_var_name, var_name, codelist_defined, df)
+      var_log[i, 'Action'] <- paste0('Submission value derived by left join codelist with DECODE = ', var_name)
     } else {
       warning(paste0('Algorithm for: ', spec_cut[i, 'VARIABLE'], ' not supported'))
       next
     }
   }
+  return(list(df, var_log))
 }
 
 ut_auto_var_process <- function(df, spec){
@@ -403,25 +435,27 @@ ut_adam_setup <- function(mode, compound, study, lock, domain,
   spec <- read_excel(file.path(Spec_path, spec_name), sheet = toupper(domain)) %>%
     filter(is.na(REMOVE)) %>%
     arrange(as.numeric(ORDER))
+  codelist_defined <- read_excel(file.path(Spec_path, spec_name), sheet = toupper('DEFINE_TERMINOLOGY')) %>%
+    filter(DATASET == toupper(domain))
   assign('spec', spec, envir = .GlobalEnv)
+  assign('codelist_defined', codelist_defined, envir = .GlobalEnv)
   # read list of data sets needed from spec
 }
-mode = 'qa'
-compound = 'ly3074828'
-study = 'i6t_mc_amba'
-lock = 'safety_review7'
-domain = 'adho'
-prim_df = 'ho'
-
-adam_setup(mode, compound, study, lock, domain)
-df_vec_df <- identify_df_name(spec)
-# df_vec <- as.vector(na.exclude(unique(spec$SOURCE_DATASET)))
-#load data
-df_list <- ut_read_data(Adam_path, Sdtm_path, df_vec_df)
-df_append <- append_data(df_vec_df, df_list, prim_df)
-df_relrec <- relrec_append(df_append, prim_df)
-df_res_pred_list <- auto_var_process(df_relrec, spec)
-df_res <- df_res_pred_list[[1]]
-log <- df_res_pred_list[[2]]
-return(list(spec = spec, df_list = df_list, df_all = df_all, df_res = df_res, log = log))
+# mode = 'qa'
+# compound = 'ly3074828'
+# study = 'i6t_mc_amba'
+# lock = 'safety_review7'
+# domain = 'adho'
+# prim_df = 'ho'
+# 
+# adam_setup(mode, compound, study, lock, domain)
+# df_vec_df <- identify_df_name(spec)
+# # df_vec <- as.vector(na.exclude(unique(spec$SOURCE_DATASET)))
+# #load data
+# df_list <- ut_read_data(Adam_path, Sdtm_path, df_vec_df)
+# df_append <- append_data(df_vec_df, df_list, prim_df)
+# df_relrec <- relrec_append(df_append, prim_df)
+# df_res_pred_list <- auto_var_process(df_relrec, spec)
+# df_res <- df_res_pred_list[[1]]
+# log <- df_res_pred_list[[2]]
 
