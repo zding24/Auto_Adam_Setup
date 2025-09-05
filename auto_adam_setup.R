@@ -19,7 +19,6 @@ alg_date <- function(date_var){
   }
 }
 
-
 alg_datetime <- function(date_var){
   if (all(is.na(date_var))){
     log <- data.frame(Var = date_var, Action = NA)
@@ -89,7 +88,7 @@ alg_datetime <- function(date_var){
   }
 }
 
-auto_var_mapping <- function(df, spec){
+ut_auto_var_mapping <- function(df, spec){
   spec_cut <- spec[spec$ORIGIN == 'Assigned',]
   for (i in 1:nrow(spec_cut)){
     if (!is.na(spec_cut[i,'STUDY_SPECIFIC_ALGORITHM'])) {
@@ -118,7 +117,7 @@ auto_var_mapping <- function(df, spec){
   }
 }
 
-auto_var_process <- function(df, spec){
+ut_auto_var_process <- function(df, spec){
   glob_log <<- list()
   glob_log_id <<- 1
   var_log <- data.frame(Var = character(), Algorithm_type = character(), Algorithm = character(), Action = character(), glob_log_id = integer(), Comment = character())
@@ -196,7 +195,7 @@ auto_var_process <- function(df, spec){
   return(list(df, var_log))
 }
 
-relrec_append <- function(df_append, prim_df_name, keys = c('STUDYID', 'USUBJID', 'SUBJID')){
+ut_relrec_append <- function(df_append, prim_df_name, keys = c('STUDYID', 'USUBJID', 'SUBJID')){
   prim_df_name <- toupper(prim_df_name)
   if (!'RELREC' %in% names(df_append)){
     warning('No RELREC dataset found')
@@ -235,7 +234,7 @@ relrec_append <- function(df_append, prim_df_name, keys = c('STUDYID', 'USUBJID'
   }
 }
 
-append_data <- function(df_name, df_list, prim_df, keys = c('STUDYID', 'USUBJID', 'SUBJID')){
+ut_append_data <- function(df_name, df_list, prim_df, keys = c('STUDYID', 'USUBJID', 'SUBJID')){
   #check number of datasets read
   prim_df_name <- toupper(prim_df)
   df_res_list <- list()
@@ -355,7 +354,7 @@ ut_read_data <- function(Adam_path, Sdtm_path, df_vec_df){
   return(df_list)
 }
 
-identify_df_name <- function(spec){
+ut_identify_df_name <- function(spec){
   # read list of data sets needed from spec
   algorithm <- ifelse(!is.na(spec$STUDY_SPECIFIC_ALGORITHM), 
                       spec$STUDY_SPECIFIC_ALGORITHM, 
@@ -379,7 +378,7 @@ identify_df_name <- function(spec){
   return(df_vec_df)
 }
 
-adam_setup <- function(mode, compound, study, lock, domain,
+ut_adam_setup <- function(mode, compound, study, lock, domain,
                        env = 'MAC', spec_name = 'amba_adam_specs_lilly.xlsx'){
   library('tidyverse')
   library('haven') #Read SAS dataset
