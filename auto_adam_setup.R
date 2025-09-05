@@ -1,10 +1,3 @@
-mode = 'qa'
-compound = 'ly3074828'
-study = 'i6t_mc_amba'
-lock = 'safety_review7'
-domain = 'adho'
-prim_df = 'ho'
-
 alg_date <- function(date_var){
   if (all(is.na(date_var))){
     log <- data.frame(Var = date_var, Action = NA)
@@ -203,48 +196,116 @@ auto_var_process <- function(df, spec){
   return(list(df, var_log))
 }
 
+relrec_append <- function(df_append, prim_df_name, keys = c('STUDYID', 'USUBJID', 'SUBJID')){
+  prim_df_name <- toupper(prim_df_name)
+  if (!'RELREC' %in% names(df_append)){
+    warning('No RELREC dataset found')
+    return(df_append)
+  } else {
+    df_relrec <- df_append[['RELREC']] %>%
+      filter(RDOMAIN %in% names(df_append))
+    df_append[['RELREC']] <- NULL
+    for (i in names(df_append)){
+      df_relrec_temp <- df_relrec %>%
+        filter(RDOMAIN == i)
+      if (length(unique(df_relrec_temp$IDVAR)) > 1){
+        stop(paste0('Multiple IDVAR found for domain: ', i))
+      } else{
+        relrec_key <- unique(df_relrec_temp$IDVAR)
+        df_relrec_temp <- df_relrec_temp %>%
+          pivot_wider(names_from = 'IDVAR', values_from = 'IDVARVAL')
+      }
+      df_relrec_temp[[relrec_key]] <- as.character(df_relrec_temp[[relrec_key]])
+      df_append[[i]][[relrec_key]] <- as.character(df_append[[i]][[relrec_key]])
+      df_append[[i]] <- left_join(df_append[[i]], df_relrec_temp, by = c(keys, relrec_key), 
+                                 suffix = c('', 'relrec'))
+      print(paste0('Merge RELREC to dataset: ', i, ' by ', paste(c(keys, relrec_key), collapse = ', ')))
+    }
+    
+    df_res <- df_append[[prim_df_name]]
+    df_append[[prim_df_name]] <- NULL
+    
+    for (i in names(df_append)){
+      print(paste0('Merge dataset: ', i,' to ',prim_df_name, ' by ', paste(c(keys, 'RELID'), collapse = ', ')))
+      df_res <- left_join(df_res, df_append[[i]], by = c(keys, 'RELID'), 
+                          suffix = c('', paste0('.', tolower(i))))
+    }
+    
+    return(df_res)
+  }
+}
+
 append_data <- function(df_name, df_list, prim_df, keys = c('STUDYID', 'USUBJID', 'SUBJID')){
   #check number of datasets read
+  prim_df_name <- toupper(prim_df)
+  df_res_list <- list()
   if (length(df_list) == 0){
     stop('No data to append')
   } else if (length(df_list) == 1){
     return(df_list[[1]])
   } else {
     if (length(prim_df) == 1){
-      df_all <- df_list[[which(tolower(df_name) %in% tolower(prim_df))]]
+      #df_all <- df_list[[which(tolower(df_name) %in% tolower(prim_df))]]
     } else if (length(prim_df) > 1){
-      df_all <- do.call(rbind, df_list[which(tolower(df_name) %in% tolower(prim_df))])
+      stop('Multiple primary datasets not supported')
+      #df_all <- do.call(rbind, df_list[which(tolower(df_name) %in% tolower(prim_df))])
     } else {
       stop('Primary datasets not defined')
     }
-    print(paste0('Primary dataset for merge: ', prim_df))
+    print(paste0('Primary dataset for merge: ', paste(prim_df, collapse = ', ')))
     
-    # remove primay data
-    df_list[[which(tolower(df_name) %in% tolower(prim_df))]] <- NULL
-    df_name <- df_name[-which(tolower(df_name) %in% tolower(prim_df))]
-    
-    # combine
-    for (i in 1:length(df_list)){
-      if (toupper(substr(df_name[i], 1, 4)) == 'SUPP' | toupper(df_name[i]) %in% c('RELREC', 'ADSL')){
-        df_all <- left_join(df_all, df_list[[i]], by = keys, 
-                            suffix = c(ifelse(i == 1, 
-                                              paste0('.', tolower(prim_df)), 
-                                              paste0('.', tolower(df_name[i-1]))), 
-                                       paste0('.', tolower(df_name[i]))))
-        print(paste0('Merge dataset: ', df_name[i], ' by ', paste(keys, collapse = ', ')))
+    df_name$domain <- ifelse(str_detect(df_name$name, '^SUPP'), 
+                             substr(df_name$name, 5, nchar(df_name$name)), 
+                             df_name$name)
+    for(i in unique(df_name[df_name$name != 'ADSL', 'domain'])){
+      if (nrow(df_name[df_name$domain == i,]) > 1){
+        prim_df <- df_list[[df_name[df_name$domain == i & df_name$name == df_name$domain, 'name']]]
+        supp_df <- df_list[[df_name[df_name$domain == i & df_name$name != df_name$domain, 'name']]]
+        merge_df <- left_join(prim_df, supp_df, by = keys, 
+                                        suffix = c(i, paste0('supp', tolower(i))))
+        df_res_list[[i]] <- merge_df %>%
+                              rowwise()%>%
+                              filter(IDVARVAL == get(IDVAR)) %>%
+                              ungroup()
       } else {
-        specific_key <- c(setNames(keys[1],keys[1]), setNames(keys[2],keys[2]), setNames(keys[3],keys[3]),
-                          setNames(paste0(toupper(df_name[i]), 'SEQ'), paste0(toupper(prim_df), 'SEQ')))
-        print(specific_key)
-        df_all <- left_join(df_all, df_list[[i]], by = specific_key, 
-                            suffix = c(ifelse(i == 1, 
-                                              paste0('.', tolower(prim_df)), 
-                                              paste0('.', tolower(df_name[i-1]))), 
-                                       paste0('.', tolower(df_name[i]))))
-        print(paste0('Merge dataset: ', df_name[i], ' by ', paste(specific_key, collapse = ', ')))
+        df_res_list[[i]] <- df_list[[df_name[df_name$domain == i, 'name']]]
       }
     }
-    return(df_all)
+    
+    #Append ADSL to primary data
+    
+    if ('ADSL' %in% df_name$name){
+      df_res_list[[prim_df_name]] <- left_join(df_res_list[[prim_df_name]], df_list[['ADSL']], by = keys, 
+                                          suffix = c('', 'adsl'))
+    }
+    
+    
+    # # remove primay data
+    # df_list[[which(tolower(df_name) %in% tolower(prim_df))]] <- NULL
+    # df_name <- df_name[-which(tolower(df_name) %in% tolower(prim_df))]
+    # 
+    # combine
+    # for (i in 1:length(df_list)){
+    #   if (toupper(substr(df_name[i], 1, 4)) == 'SUPP' | toupper(df_name[i]) %in% c('RELREC', 'ADSL')){
+    #     df_all <- left_join(df_all, df_list[[i]], by = keys, 
+    #                         suffix = c(ifelse(i == 1, 
+    #                                           paste0('.', tolower(prim_df)), 
+    #                                           paste0('.', tolower(df_name[i-1]))), 
+    #                                    paste0('.', tolower(df_name[i]))))
+    #     print(paste0('Merge dataset: ', df_name[i], ' by ', paste(keys, collapse = ', ')))
+    #   } else {
+    #     specific_key <- c(setNames(keys[1],keys[1]), setNames(keys[2],keys[2]), setNames(keys[3],keys[3]),
+    #                       setNames(paste0(toupper(df_name[i]), 'SEQ'), paste0(toupper(prim_df), 'SEQ')))
+    #     print(specific_key)
+    #     df_all <- left_join(df_all, df_list[[i]], by = specific_key, 
+    #                         suffix = c(ifelse(i == 1, 
+    #                                           paste0('.', tolower(prim_df)), 
+    #                                           paste0('.', tolower(df_name[i-1]))), 
+    #                                    paste0('.', tolower(df_name[i]))))
+    #     print(paste0('Merge dataset: ', df_name[i], ' by ', paste(specific_key, collapse = ', ')))
+    #   }
+    # }
+    return(df_res_list)
   }
 }
 
@@ -288,6 +349,12 @@ load_data <- function(adam_path, sdtm_path, df){
   }
 }
 
+ut_read_data <- function(Adam_path, Sdtm_path, df_vec_df){
+  df_list <- lapply(1:nrow(df_vec_df), function (x) load_data(Adam_path, Sdtm_path, df_vec_df[x,]))
+  names(df_list) <- df_vec_df$name
+  return(df_list)
+}
+
 identify_df_name <- function(spec){
   # read list of data sets needed from spec
   algorithm <- ifelse(!is.na(spec$STUDY_SPECIFIC_ALGORITHM), 
@@ -312,7 +379,7 @@ identify_df_name <- function(spec){
   return(df_vec_df)
 }
 
-adam_setup <- function(mode, compound, study, lock, domain, prim_df,
+adam_setup <- function(mode, compound, study, lock, domain,
                        env = 'MAC', spec_name = 'amba_adam_specs_lilly.xlsx'){
   library('tidyverse')
   library('haven') #Read SAS dataset
@@ -329,24 +396,33 @@ adam_setup <- function(mode, compound, study, lock, domain, prim_df,
     stop('not supported yet')
   }
   
-  Adam_path <- file.path(root_path, 'data', 'analysis', 'shared')
-  Sdtm_path <- file.path(root_path, 'data', 'observed', 'shared')
-  Spec_path <- file.path(root_path, 'documentation', 'specs', 'analysis')
-  Program_path <- file.path(root_path, 'programs', 'analysis')
+  Adam_path <<- file.path(root_path, 'data', 'analysis', 'shared')
+  Sdtm_path <<- file.path(root_path, 'data', 'observed', 'shared')
+  Spec_path <<- file.path(root_path, 'documentation', 'specs', 'analysis')
+  Program_path <<- file.path(root_path, 'programs', 'analysis')
   
-  spec<- read_excel(file.path(Spec_path, spec_name), sheet = toupper(domain)) %>%
+  spec <- read_excel(file.path(Spec_path, spec_name), sheet = toupper(domain)) %>%
     filter(is.na(REMOVE)) %>%
     arrange(as.numeric(ORDER))
+  assign('spec', spec, envir = .GlobalEnv)
   # read list of data sets needed from spec
-  df_vec_df <- identify_df_name(spec)
-  # df_vec <- as.vector(na.exclude(unique(spec$SOURCE_DATASET)))
-  #load data
-  df_list <- lapply(1:nrow(df_vec_df), function (x) load_data(Adam_path, Sdtm_path, df_vec_df[x,]))
-  df_all <- append_data(df_vec_df$name, df_list, prim_df)
-  df_res_pred_list <- auto_var_process(df_all, spec)
-  df_res <- df_res_pred_list[[1]]
-  log <- df_res_pred_list[[2]]
-  return(df_res_pred_list)
 }
+mode = 'qa'
+compound = 'ly3074828'
+study = 'i6t_mc_amba'
+lock = 'safety_review7'
+domain = 'adho'
+prim_df = 'ho'
 
-df_res <- adam_setup(mode, compound, study, lock, domain, prim_df)
+adam_setup(mode, compound, study, lock, domain)
+df_vec_df <- identify_df_name(spec)
+# df_vec <- as.vector(na.exclude(unique(spec$SOURCE_DATASET)))
+#load data
+df_list <- ut_read_data(Adam_path, Sdtm_path, df_vec_df)
+df_append <- append_data(df_vec_df, df_list, prim_df)
+df_relrec <- relrec_append(df_append, prim_df)
+df_res_pred_list <- auto_var_process(df_relrec, spec)
+df_res <- df_res_pred_list[[1]]
+log <- df_res_pred_list[[2]]
+return(list(spec = spec, df_list = df_list, df_all = df_all, df_res = df_res, log = log))
+
