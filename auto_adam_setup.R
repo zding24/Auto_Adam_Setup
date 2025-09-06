@@ -1,3 +1,13 @@
+#' Algorithm: Convert date variable to Date format
+#' 
+#' Returns variable with Date format
+#' 
+#' Component module for auto_var_process()
+#' Need to be updated, now it's equivalent to as.Date()
+#' @param date_var Vector, Variable to be converted
+#' @return A list of two elements: (1) converted date variable, (2) log of conversion
+#' @examples
+#'   alg_date(c('2020-01-01', '2020-02-01'))
 alg_date <- function(date_var){
   if (all(is.na(date_var))){
     log <- data.frame(Var = date_var, Action = NA)
@@ -19,7 +29,17 @@ alg_date <- function(date_var){
   }
 }
 
+#' Algorithm: Convert date variable to datetime (POSIXct) format
+#' 
+#' Check variable's format and convert it to YMD_HMS format (POSIXct type)
+#' 
+#' Component module to for auto_var_process
+#' @param date_var Vector, Variable to be converted
+#' @return A list of two elements: (1) converted date variable, (2) log of conversion
+#' @examples
+#'   alg_datetime(c('2020-01-01T12:00:00', '2020-02-01T13:30:00'))
 alg_datetime <- function(date_var){
+  # check variable type
   if (all(is.na(date_var))){
     log <- data.frame(Var = date_var, Action = NA)
     return(list(NA, log))
@@ -32,7 +52,7 @@ alg_datetime <- function(date_var){
   } else if (is(date_var, 'character')){
     date_temp <- c()
     log <- data.frame(Var = character(), Action = character())
-    
+    # try multiple formats
     for (i in 1:length(date_var)){
       if (!is.na(ymd_hms(date_var[i], quiet = TRUE))){
         date_temp[i] <- (ymd_hms(date_var[i]))
@@ -88,6 +108,18 @@ alg_datetime <- function(date_var){
   }
 }
 
+#' Algorithm: Variable mapping
+#' 
+#' Map variable to submission value based on codelist
+#' 
+#' Component module to for auto_var_process
+#' @param sub_var Name of the variable to be created (SUBMISSION value defined in the codelist)
+#' @param decode_var Variable to be mapped (DECODE value defined in the codelist)
+#' @param codelist_defined Codelist dataframe defined in the spec
+#' @param df Dataframe containing the variable to be mapped
+#' @return A vector of mapped submission values
+#' @examples
+#'   alg_mapping('APERIODC.res', 'APERIOD.res', codelist_defined, df)
 alg_mapping <- function(sub_var, decode_var, codelist_defined, df){
   sub_var_code <- ifelse(endsWith(sub_var, '.res'), substr(sub_var, 1, nchar(sub_var)-4), sub_var)
   #decode_var_code <- ifelse(endsWith(decode_var, '.res'), substr(decode_var, 1, nchar(decode_var)-4), decode_var)
@@ -172,9 +204,19 @@ ut_auto_var_process <- function(df, spec){
       next
     }
     algorithm <- sub("[\r\n]+$", "", algorithm) #remove trailing period if any
-    if (grepl("^Copied from \\w+\\.\\w+\\.\\w+$", algorithm)){
+    if (grepl("^Copied from \\w+\\.\\w+\\.\\w+$", trimws(algorithm))){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][3]
+      var_name <- strsplit(var_temp, '\\.')[[1]][3]
+      #print(var_name)
+      var_df <- strsplit(var_temp, '\\.')[[1]][2]
+      res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
+      df[[res_var_name]] <- df[[toupper(var_name)]]
+      var_log[i, 'Action'] <- paste0('Copied from ', var_name)
+      
+    } else if (grepl("^Copy values from \\w+\\.\\w+\\.\\w+;$", trimws(algorithm))){
+      print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
+      var_temp <- strsplit(algorithm, ' ')[[1]][4]
       var_name <- strsplit(var_temp, '\\.')[[1]][3]
       #print(var_name)
       var_df <- strsplit(var_temp, '\\.')[[1]][2]
@@ -200,7 +242,8 @@ ut_auto_var_process <- function(df, spec){
       var_log[i, 'glob_log_id'] <- glob_log_id
       glob_log_id <<- glob_log_id + 1
       
-    } else if (grepl("^Convert the date part of \\w+\\.\\w+\\.\\w+ to numeric date.$", algorithm)){
+    } else if (grepl("^Convert the date part of \\w+\\.\\w+\\.\\w+ to numeric date.$", trimws(algorithm))|
+               grepl("^Convert the date portion of \\w+\\.\\w+\\.\\w+ to a numeric date.$", trimws(algorithm))){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][6]
       var_name <- strsplit(var_temp, '\\.')[[1]][3]
@@ -259,7 +302,7 @@ ut_relrec_append <- function(df_append, prim_df_name, keys = c('STUDYID', 'USUBJ
     for (i in names(df_append)){
       print(paste0('Merge dataset: ', i,' to ',prim_df_name, ' by ', paste(c(keys, 'RELID'), collapse = ', ')))
       df_res <- left_join(df_res, df_append[[i]], by = c(keys, 'RELID'), 
-                          suffix = c('', paste0('.', tolower(i))))
+                          suffix = c('', paste0('.', tolower(i))), na_matches = 'never')
     }
     
     return(df_res)
@@ -420,6 +463,7 @@ ut_adam_setup <- function(mode, compound, study, lock, domain,
   library('diffdf') # Compare dataframes
   library('labelled')
   library(arsenal)
+  library(roxygen2)
   
   if (toupper(env) == 'MAC'){
     root_path <- file.path('/Volumes/lillyce', mode, compound, study, lock)
@@ -441,20 +485,23 @@ ut_adam_setup <- function(mode, compound, study, lock, domain,
   assign('codelist_defined', codelist_defined, envir = .GlobalEnv)
   # read list of data sets needed from spec
 }
+#roxygenise()
+
+
 # mode = 'qa'
 # compound = 'ly3074828'
 # study = 'i6t_mc_amba'
 # lock = 'safety_review7'
-# domain = 'adho'
-# prim_df = 'ho'
+# domain = 'adpr'
+# prim_df = 'pr'
 # 
-# adam_setup(mode, compound, study, lock, domain)
-# df_vec_df <- identify_df_name(spec)
+# ut_adam_setup(mode, compound, study, lock, domain)
+# df_vec_df <- ut_identify_df_name(spec)
 # # df_vec <- as.vector(na.exclude(unique(spec$SOURCE_DATASET)))
 # #load data
 # df_list <- ut_read_data(Adam_path, Sdtm_path, df_vec_df)
-# df_append <- append_data(df_vec_df, df_list, prim_df)
-# df_relrec <- relrec_append(df_append, prim_df)
+# df_append <- ut_append_data(df_vec_df, df_list, prim_df)
+# df_relrec <- ut_relrec_append(df_append, prim_df)
 # df_res_pred_list <- auto_var_process(df_relrec, spec)
 # df_res <- df_res_pred_list[[1]]
 # log <- df_res_pred_list[[2]]
