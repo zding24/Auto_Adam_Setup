@@ -204,6 +204,8 @@ ut_auto_var_process <- function(df, spec){
       next
     }
     algorithm <- sub("[\r\n]+$", "", algorithm) #remove trailing period if any
+    algorithm <- trimws(algorithm) #remove leading/trailing spaces
+    algorithm <- sub(";$", "", algorithm) #remove trailing semicolon if any
     if (grepl("^Copied from \\w+\\.\\w+\\.\\w+$", trimws(algorithm))){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][3]
@@ -214,7 +216,7 @@ ut_auto_var_process <- function(df, spec){
       df[[res_var_name]] <- df[[toupper(var_name)]]
       var_log[i, 'Action'] <- paste0('Copied from ', var_name)
       
-    } else if (grepl("^Copy values from \\w+\\.\\w+\\.\\w+;$", trimws(algorithm))){
+    } else if (grepl("^Copy values from \\w+\\.\\w+\\.\\w+$", trimws(algorithm))){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][4]
       var_name <- strsplit(var_temp, '\\.')[[1]][3]
@@ -224,7 +226,8 @@ ut_auto_var_process <- function(df, spec){
       df[[res_var_name]] <- df[[toupper(var_name)]]
       var_log[i, 'Action'] <- paste0('Copied from ', var_name)
       
-    } else if(grepl("^Convert \\w+\\.\\w+\\.\\w+ to numeric datetime.$", algorithm)){
+    } else if(grepl("^Convert \\w+\\.\\w+\\.\\w+ to numeric datetime.$", algorithm)|
+              grepl('^Convert \\w+\\.\\w+\\.\\w+ to numeric datetime. If timepart is missing, set to "00:00:00"',trimws(algorithm))){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][2]
       var_name <- strsplit(var_temp, '\\.')[[1]][3]
@@ -260,7 +263,7 @@ ut_auto_var_process <- function(df, spec){
       }
       var_log[i, 'glob_log_id'] <- glob_log_id
       glob_log_id <<- glob_log_id + 1
-    }
+    } 
     
     else {
       warning(paste0('Algorithm for: ', spec_cut[i, 'VARIABLE'], ' not supported'))
@@ -475,7 +478,7 @@ ut_adam_setup <- function(mode, compound, study, lock, domain,
   Sdtm_path <<- file.path(root_path, 'data', 'observed', 'shared')
   Spec_path <<- file.path(root_path, 'documentation', 'specs', 'analysis')
   Program_path <<- file.path(root_path, 'programs', 'analysis')
-  
+  Log_path <<- file.path(root_path, 'logs', 'analysis')
   spec <- read_excel(file.path(Spec_path, spec_name), sheet = toupper(domain)) %>%
     filter(is.na(REMOVE)) %>%
     arrange(as.numeric(ORDER))
