@@ -1,126 +1,104 @@
-#' Algorithm: Convert date variable to Date format
-#' 
-#' Returns variable with Date format
-#' 
-#' Component module for auto_var_process()
-#' Need to be updated, now it's equivalent to as.Date()
-#' @param date_var Vector, Variable to be converted
-#' @return A list of two elements: (1) converted date variable, (2) log of conversion
-#' @examples
-#'   alg_date(c('2020-01-01', '2020-02-01'))
+alg_time <- function(date_var){
+  #' 
+  
+  if (all(!is.na(ymd_hms(date_var, quiet = T)))) {
+    log <- 'Date time format: YMD_HMS'
+  } else if ((all(!is.na(ymd_hms(date_var, quiet = T, truncated = 3))))){
+    log <- 'Date time format: YMD_HMS, Time is missing for some records'
+  }
+  temp <- strsplit(date_var, 'T')
+  res <- sapply(temp, function (x) ifelse(length(x) > 1, x[[2]], NA))
+  return(list(res, log))
+}
+
 alg_date <- function(date_var){
+  #' Algorithm: Convert date variable to Date format
+  #' 
+  #' Returns variable with Date format
+  #' 
+  #' Component module for auto_var_process()
+  #' Need to be updated, now it's equivalent to as.Date()
+  #' @param date_var Vector, Variable to be converted
+  #' @return A list of two elements: (1) converted date variable, (2) log of conversion
+  #' @examples
+  #'   alg_date(c('2020-01-01', '2020-02-01'))
+
   if (all(is.na(date_var))){
-    log <- data.frame(Var = date_var, Action = NA)
+    log <- NA
     return(list(NA, log))
   } else if (is(date_var, 'Date')){
-    log <- data.frame(Var = date_var, Action = NA)
+    log <-NA
     return(list(date_var, log))
   } else if (is(date_var, 'POSIXct')){
-    log <- data.frame(Var = date_var, Action = NA)
+    log <- NA
     return(list(date_var, log))
   } else if (is(date_var, 'character')){
     date_temp <- as.Date(date_var)
-    log <- data.frame(Var = character(), Action = character())
+    log <- 'Converted to date by using as.Date()'
     return(list(date_temp, log))
     } else {
-    warning(paste0('Date conversion failed for variable of type: ', class(date_var)))
-    log <- data.frame(Var = date_var, Action = NA)
-    return(list(NULL, log))
+    log <- paste0('Date conversion failed for variable of type: ', class(date_var))
+    return(list(NA, log))
   }
 }
 
-#' Algorithm: Convert date variable to datetime (POSIXct) format
-#' 
-#' Check variable's format and convert it to YMD_HMS format (POSIXct type)
-#' 
-#' Component module to for auto_var_process
-#' @param date_var Vector, Variable to be converted
-#' @return A list of two elements: (1) converted date variable, (2) log of conversion
-#' @examples
-#'   alg_datetime(c('2020-01-01T12:00:00', '2020-02-01T13:30:00'))
-alg_datetime <- function(date_var){
+alg_datetime <- function(date_var, truncated_num = 3){
+  #' Algorithm: Convert date variable to datetime (POSIXct) format
+  #' 
+  #' Check variable's format and convert it to YMD_HMS format (POSIXct type)
+  #' 
+  #' Component module to for auto_var_process, assume unique date format
+  #' @param date_var Vector, Variable to be converted
+  #' @return A list of two elements: (1) converted date variable, (2) log of conversion
+  #' @examples
+  #'   alg_datetime(c('2020-01-01T12:00:00', '2020-02-01T13:30:00'))
+  
   # check variable type
   if (all(is.na(date_var))){
-    log <- data.frame(Var = date_var, Action = NA)
+    log <- NA
     return(list(NA, log))
   } else if (is(date_var, 'Date')){
-    log <- data.frame(Var = date_var, Action = NA)
+    log <- NA
     return(list(date_var, log))
   } else if (is(date_var, 'POSIXct')){
-    log <- data.frame(Var = date_var, Action = NA)
+    log <-  NA
     return(list(date_var, log))
   } else if (is(date_var, 'character')){
-    date_temp <- c()
-    log <- data.frame(Var = character(), Action = character())
     # try multiple formats
-    for (i in 1:length(date_var)){
-      if (!is.na(ymd_hms(date_var[i], quiet = TRUE))){
-        date_temp[i] <- (ymd_hms(date_var[i]))
-        log[i,2] <- 'Date time format: YMD_HMS; read as YMD_HMS'
-      } else if (!is.na(ymd_hms(date_var[i], truncated = 1, quiet = TRUE))){
-        date_temp[i] <- ymd_hms(date_var[i], truncated = 1)
-        log[i,2] <- 'Date time format: YMD_HM; read as YMD_HMS'
-      } else if (!is.na(ymd_hms(date_var[i], truncated = 2, quiet = TRUE))){
-        date_temp[i] <- ymd_hms(date_var[i], truncated = 2)
-        log[i,2] <- 'Date time format: YMD_H; read as YMD_HMS'
-      } else if (!is.na(ymd_hms(date_var[i], truncated = 3, quiet = TRUE))){
-        date_temp[i] <- ymd_hms(date_var[i], truncated = 3)
-        log[i,2] <- 'Date time format: YMD; read as YMD_HMS'
-      } else if (!is.na(mdy_hms(date_var[i], quiet = TRUE))){
-        date_temp[i] <- mdy_hms(date_var[i])
-        log[i,2] <- 'Date time format: MDY_HMS; read as MDY_HMS'
-      } else if (!is.na(mdy_hms(date_var[i], truncated = 1, quiet = TRUE))){
-        date_temp[i] <- mdy_hms(date_var[i], truncated = 1)
-        log[i,2] <- 'Date time format: MDY_HM; read as MDY_HMS'
-      } else if (!is.na(mdy_hms(date_var[i], truncated = 2, quiet = TRUE))){
-        date_temp[i] <- mdy_hms(date_var[i], truncated = 2)
-        log[i,2] <- 'Date time format: MDY_H; read as MDY_HMS'
-      } else if (!is.na(mdy_hms(date_var[i], truncated = 3, quiet = TRUE))){
-        date_temp[i] <- mdy_hms(date_var[i], truncated = 3)
-        log[i,2] <- 'Date time format: MDY; read as MDY_HMS'
-      } else if (!is.na(dmy_hms(date_var[i], quiet = TRUE))){
-        date_temp[i] <- dmy_hms(date_var[i])
-        log[i,2] <- 'Date time format: DMY_HMS; read as DMY_HMS'
-      } else if (!is.na(dmy_hms(date_var[i], truncated = 1, quiet = TRUE))){
-        date_temp[i] <- dmy_hms(date_var[i], truncated = 1)
-        log[i,2] <- 'Date time format: DMY_HM; read as DMY_HMS'
-      } else if (!is.na(dmy_hms(date_var[i], truncated = 2, quiet = TRUE))){
-        date_temp[i] <- dmy_hms(date_var[i], truncated = 2)
-        log[i,2] <- 'Date time format: DMY_H; read as DMY_HMS'
-      } else if (!is.na(dmy_hms(date_var[i], truncated = 3, quiet = TRUE))){
-        date_temp[i] <- dmy_hms(date_var[i], truncated = 3)
-        log[i,2] <- 'Date time format: DMY; read as DMY_HMS'
-      } else if (is.na(date_var[i])){
-        date_temp[i] <- NA
-        log[i,2] <- 'Date time read as NA'
-      } else {
-        warning(paste0('Date conversion failed for variable of type: ', class(date_var), ' with value: ', date_var[i]))
-        date_temp[i] <- NA
-        log[i,2] <- 'Date time conversion failed'
-      }
+    if (all(!is.na(ymd_hms(date_var, truncated = truncated_num, quiet = TRUE)))){ #If the value follows the patter of YMD_HMS
+      date_temp <- ymd_hms(date_var, truncated = truncated_num)
+      log <- paste0('Date time format: YMD_HMS; read as YMD_HMS', 'with truncated = ', truncated_num)
+    } else if (all(!is.na(mdy_hms(date_var, truncated = truncated_num, quiet = TRUE)))){ #If the value follows the patter of MDY_HMS
+      date_temp <- mdy_hms(date_var, truncated = truncated_num)
+      log <- paste0('Date time format: MDY_HMS; read as MDY_HMS', 'with truncated = ', truncated_num)
+    } else if (all(!is.na(dmy_hms(date_var, truncated = truncated_num, quiet = TRUE)))){ #If the value follows the patter of DMY_HMS
+      date_temp <- dmy_hms(date_var, truncated = truncated_num)
+      log <- paste0('Date time format: DMY_HMS; read as DMY_HMS', 'with truncated = ', truncated_num)
+    } else {
+      date_temp <- rep(NA, length(date_var))
+      log <- paste0('Date time format: Unknown or contains multiple formats; read as NA')
     }
-    log[,1] <- date_var
     return(list(date_temp, log))
   } else {
-    warning(paste0('Date conversion failed for variable of type: ', class(date_var)))
-    log <- data.frame(Var = date_var, Action = NA)
-    return(list(NULL, log))
+    log <- paste0('Date conversion failed for variable of type: ', class(date_var))
+    return(list(NA, log))
   }
 }
 
-#' Algorithm: Variable mapping
-#' 
-#' Map variable to submission value based on codelist
-#' 
-#' Component module to for auto_var_process
-#' @param sub_var Name of the variable to be created (SUBMISSION value defined in the codelist)
-#' @param decode_var Variable to be mapped (DECODE value defined in the codelist)
-#' @param codelist_defined Codelist dataframe defined in the spec
-#' @param df Dataframe containing the variable to be mapped
-#' @return A vector of mapped submission values
-#' @examples
-#'   alg_mapping('APERIODC.res', 'APERIOD.res', codelist_defined, df)
-alg_mapping <- function(sub_var, decode_var, codelist_defined, df){
+alg_mapping <- function(sub_var, decode_var, codelist_defined, var){
+  #' Algorithm: Variable mapping
+  #' 
+  #' Map variable to submission value based on codelist
+  #' 
+  #' Component module to for auto_var_process
+  #' @param sub_var Name of the variable to be created (SUBMISSION value defined in the codelist)
+  #' @param decode_var Variable to be mapped (DECODE value defined in the codelist)
+  #' @param codelist_defined Codelist dataframe defined in the spec
+  #' @param df Dataframe containing the variable to be mapped
+  #' @return A vector of mapped submission values
+  #' @examples
+  #'   alg_mapping('APERIODC.res'(variable to be created), 'APERIOD.res'(variable exisited in the dataset), codelist_defined, var)
+
   sub_var_code <- ifelse(endsWith(sub_var, '.res'), substr(sub_var, 1, nchar(sub_var)-4), sub_var)
   #decode_var_code <- ifelse(endsWith(decode_var, '.res'), substr(decode_var, 1, nchar(decode_var)-4), decode_var)
   
@@ -130,6 +108,8 @@ alg_mapping <- function(sub_var, decode_var, codelist_defined, df){
     mutate(DECODE = gsub(' ', '',as.character(DECODE))) %>%
     rename(!!decode_var := DECODE) 
   
+  df <- as.data.frame(var)
+  names(df) <- decode_var
   df[[decode_var]] <- gsub(' ', '',as.character(df[[decode_var]]))
   df_merge <- left_join(df, codelist_defined_temp, by = decode_var)
   return(df_merge$SUBMISSION_VALUE)
@@ -164,14 +144,14 @@ ut_auto_var_mapping <- function(df, spec, codelist_defined){
       var_name <- ifelse(paste0(var_temp, '.res') %in% colnames(df), paste0(var_temp, '.res'), var_temp)
       #print(var_name)
       res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
-      df[[res_var_name]] <- alg_mapping(res_var_name, var_name, codelist_defined, df)
+      df[[res_var_name]] <- alg_mapping(res_var_name, var_name, codelist_defined, df[[var_name]])
       var_log[i, 'Action'] <- paste0('Submission value derived by left join codelist with DECODE = ', var_name)
     } else if (grepl("^One to one numeric mapping of \\w+ as defined in the code list.$", algorithm)){
       var_temp <- strsplit(algorithm, ' ')[[1]][7]
       var_name <- ifelse(paste0(var_temp, '.res') %in% colnames(df), paste0(var_temp, '.res'), var_temp)
       #print(var_name)
       res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
-      df[[res_var_name]] <- alg_mapping(res_var_name, var_name, codelist_defined, df)
+      df[[res_var_name]] <- alg_mapping(res_var_name, var_name, codelist_defined, df[[var_name]])
       var_log[i, 'Action'] <- paste0('Submission value derived by left join codelist with DECODE = ', var_name)
     } else {
       warning(paste0('Algorithm for: ', spec_cut[i, 'VARIABLE'], ' not supported'))
@@ -206,6 +186,7 @@ ut_auto_var_process <- function(df, spec){
     algorithm <- sub("[\r\n]+$", "", algorithm) #remove trailing period if any
     algorithm <- trimws(algorithm) #remove leading/trailing spaces
     algorithm <- sub(";$", "", algorithm) #remove trailing semicolon if any
+    
     if (grepl("^Copied from \\w+\\.\\w+\\.\\w+$", trimws(algorithm))){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][3]
@@ -232,37 +213,21 @@ ut_auto_var_process <- function(df, spec){
       var_temp <- strsplit(algorithm, ' ')[[1]][2]
       var_name <- strsplit(var_temp, '\\.')[[1]][3]
       res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
-      
-      df[[res_var_name]] <- alg_datetime(df[[toupper(var_name)]])[[1]]
-      
+      temp_list <- alg_datetime(df[[toupper(var_name)]])
+      df[[res_var_name]] <- temp_list[[1]]
       var_log[i, 'Action'] <- paste0('Value derived from: ', var_name)
-      glob_log[[glob_log_id]] <<- alg_datetime(df[[toupper(var_name)]])[[2]]
-      dt_frt <- unique(glob_log[[glob_log_id]]$Action)
-      var_log[i, 'Comment'] <-  paste(dt_frt, collapse = ", ")
-      if (length(dt_frt) > 1){
-        warning(paste0('Multiple formats detected for variable: ', res_var_name, ' - ', paste(dt_frt, collapse = '; ')))
-      }
-      var_log[i, 'glob_log_id'] <- glob_log_id
-      glob_log_id <<- glob_log_id + 1
-      
+      var_log[i, 'Comment'] <-  temp_list[[2]]
+
     } else if (grepl("^Convert the date part of \\w+\\.\\w+\\.\\w+ to numeric date.$", trimws(algorithm))|
                grepl("^Convert the date portion of \\w+\\.\\w+\\.\\w+ to a numeric date.$", trimws(algorithm))){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][6]
       var_name <- strsplit(var_temp, '\\.')[[1]][3]
       res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
-      
-      df[[res_var_name]] <- alg_date(df[[toupper(var_name)]])[[1]]
-      
+      temp_list <- alg_date(df[[toupper(var_name)]])
+      df[[res_var_name]] <- temp_list[[1]]
       var_log[i, 'Action'] <- paste0('Value derived from: ', var_name)
-      glob_log[[glob_log_id]] <<- alg_date(df[[toupper(var_name)]])[[2]]
-      dt_frt <- unique(glob_log[[glob_log_id]]$Action)
-      var_log[i, 'Comment'] <-  paste(dt_frt, collapse = ", ")
-      if (length(dt_frt) > 1){
-        warning(paste0('Multiple formats detected for variable: ', res_var_name, ' - ', paste(dt_frt, collapse = '; ')))
-      }
-      var_log[i, 'glob_log_id'] <- glob_log_id
-      glob_log_id <<- glob_log_id + 1
+      var_log[i, 'Comment'] <-  temp_list[[2]]
     } 
     
     else {
