@@ -1,3 +1,68 @@
+#' Algorithm: Create imputation records for missing visits
+#' 
+#' Create imputation records for missing visits based on visit mapping and observed data
+#' 
+#' @param visit_map named vector, Visit mapping defined in the spec
+#' @param map_name String, Name of the visit number variable in visit_map (default: 'VISITNUM.res')
+#' @param map_value String, Name of the visit variable in visit_map (default: 'VISIT.res')
+#' @param paramcd_name String, Name of the parameter code variable in visit_map (default: 'PARAMCD.res')
+#' @param paramcd Vector, Parameter codes to be imputed
+#' @param post_baseline_patients Vector, List of subjects to be imputed
+#' @param observed_df Dataframe, Observed data containing visit and parameter code variables
+#' @param retain_value String, Method to retain values from observed data ('LAST' or 'FIRST', default: 'LAST')
+#' @param join_id Vector, List of variables to join observed data and imputation records (default: c('USUBJID.res', 'PARAMCD.res'))
+#' @return A dataframe of imputation records for missing visits
+#' @examples
+#'  visit_map <- c('Baseline' = 0, 'Week 1' = 7, 'Week 2' = 14, 'Week 4' = 28)
+#'  paramcd <- c('PARAM1', 'PARAM2')
+#'  post_baseline_patients <- c('SUBJ001', 'SUBJ002')
+#'  observed_df <- data.frame(USUBJID.res = c('SUBJ001', 'SUBJ001', 'SUBJ002'),
+#'                           VISITNUM.res = c(0, 7, 0),
+#'                           VISIT.res = c('Baseline', 'Week 1', 'Baseline'),
+#'                           PARAMCD.res = c('PARAM1', 'PARAM1', 'PARAM2'),
+#'                           AVAL.res = c(10, 15, 20))
+#'  alg_create_imp_df(visit_map, paramcd = paramcd, post_baseline_patients = post_baseline_patients, observed_df = observed_df)
+alg_create_imp_df <- function(visit_vec, name = 'VISIT.res', 
+                              paramcd_name = 'PARAMCD.res', paramcd, 
+                              post_baseline_patients, observed_df, 
+                              retain_value = 'LAST', join_id = c('USUBJID.res', 'PARAMCD.res')){
+  # Pre processing
+  retain_value <- toupper(retain_value)
+  
+  # Step1: Full visit for each subject
+  imp_full_record <- as.data.frame(sapply(visit_vec, function(x) rep(x, length(post_baseline_patients))))
+  imp_full_record$USUBJID.res <- post_baseline_patients
+  imp_full_record <- pivot_longer(imp_full_record, names(imp_full_record)[-length(names(imp_full_record))], values_to = name, names_to = 'name') %>% select(-name)
+  #imp_full_record$VISITNUM.res <- as.numeric(imp_full_record$VISITNUM.res)
+  imp_full_record[paramcd] <- NA
+  imp_full_record <- pivot_longer(imp_full_record, all_of(paramcd), values_to = "value", names_to = 'PARAMCD.res') %>% select(-value) 
+  
+  #Step3: select imputation records
+  df_impute <- anti_join(imp_full_record, 
+                         observed_df %>% select(names(imp_full_record)), 
+                         by = names(imp_full_record)) 
+  
+  if (retain_value == 'LAST'){
+    df_impute_fillin <- observed_df %>% 
+      group_by(across(all_of(join_id))) %>%
+      slice_tail(n = 1) %>%
+      ungroup() %>%
+      select(-names(df_impute)[which(names(df_impute) %in% names(observed_df) & !names(df_impute) %in% join_id)]) %>% #remove columns which share the same name between 2 df but not used in join
+      right_join(df_impute, by = join_id) 
+  } else if (retain_value == 'FIRST'){
+    df_res_impute_fillin <- observed_df %>% 
+      group_by(across(all_of(join_id))) %>%
+      slice(n = 1) %>%
+      ungroup() %>%
+      select(-names(df_impute)[which(names(df_impute) %in% names(observed_df) & !names(df_impute) %in% join_id)]) %>% #remove columns which share the same name between 2 df but not used in join
+      right_join(df_impute, by = join_id) 
+  } else {
+    stop("retain_value should be either 'LAST' or 'FIRST'")
+  }
+  return(df_impute_fillin)
+} 
+
+
 alg_time <- function(date_var){
   #' 
   
@@ -85,42 +150,63 @@ alg_datetime <- function(date_var, truncated_num = 3){
   }
 }
 
-alg_mapping <- function(sub_var, decode_var, codelist_defined, var){
-  #' Algorithm: Variable mapping
-  #' 
-  #' Map variable to submission value based on codelist
-  #' 
-  #' Component module to for auto_var_process
-  #' @param sub_var Name of the variable to be created (SUBMISSION value defined in the codelist)
-  #' @param decode_var Variable to be mapped (DECODE value defined in the codelist)
-  #' @param codelist_defined Codelist dataframe defined in the spec
-  #' @param df Dataframe containing the variable to be mapped
-  #' @return A vector of mapped submission values
-  #' @examples
-  #'   alg_mapping('APERIODC.res'(variable to be created), 'APERIOD.res'(variable exisited in the dataset), codelist_defined, var)
+#' Algorithm: Variable mapping
+#' 
+#' Map variable to submission value based on codelist
+#' 
+#' Component module to for auto_var_process
+#' @param sub_var String, Name of the variable to be created (SUBMISSION value defined in the codelist)
+#' @param decode_var String, Name of the variable to be mapped (DECODE value defined in the codelist)
+#' @param codelist_defined Dataframe, Codelist defined in the spec
+#' @param var Vector, Variable to be mapped (DECODE value defined in the codelist)
+#' @return A vector of mapped submission values
+#' @examples
+#'   alg_mapping('APERIODC.res'(variable to be created), 'APERIOD.res'(variable exisited in the dataset), codelist_defined, var)
+alg_mapping <- function(sub_var, decode_var = NULL, codelist_defined, var, numeric = FALSE){
 
+  #remove .res if any
   sub_var_code <- ifelse(endsWith(sub_var, '.res'), substr(sub_var, 1, nchar(sub_var)-4), sub_var)
   #decode_var_code <- ifelse(endsWith(decode_var, '.res'), substr(decode_var, 1, nchar(decode_var)-4), decode_var)
-  
+  if (is.null(decode_var)){
+    decode_var <- deparse(substitute(var)) #get the name of the variable passed to var
+  }
+  # print(class(codelist_defined))
+  # print(codelist_defined)
   codelist_defined_temp <- codelist_defined %>%
     filter(VARIABLE == sub_var_code) %>%
     select(SUBMISSION_VALUE, DECODE) %>%
-    mutate(DECODE = gsub(' ', '',as.character(DECODE))) %>%
-    rename(!!decode_var := DECODE) 
+    mutate(DECODE = gsub(' ', '',as.character(DECODE))) 
+  # %>%
+  #   rename(!!decode_var := DECODE) 
   
-  df <- as.data.frame(var)
-  names(df) <- decode_var
-  df[[decode_var]] <- gsub(' ', '',as.character(df[[decode_var]]))
-  df_merge <- left_join(df, codelist_defined_temp, by = decode_var)
-  return(df_merge$SUBMISSION_VALUE)
+  # df <- as.data.frame(var)
+  # names(df) <- decode_var
+  # df[[decode_var]] <- gsub(' ', '',as.character(df[[decode_var]]))
+  # df_merge <- left_join(df, codelist_defined_temp, by = decode_var)
+  code_vec <- codelist_defined_temp$SUBMISSION_VALUE
+  names(code_vec) <- codelist_defined_temp$DECODE
+  var <- gsub(' ', '',as.character(var))
+  res <- code_vec[var]
+  if (numeric){
+    return(as.numeric(res))
+  } else {
+    return(res)
+  }
 }
 
-ut_auto_var_mapping <- function(df, spec, codelist_defined){
+ut_auto_var_mapping <- function(df, spec, codelist_defined, overwrite = FALSE){
   glob_mapping_log <<- list()
   glob_mapping_log_id <<- 1
   var_log <- data.frame(Var = character(), Algorithm_type = character(), Algorithm = character(), Action = character(), glob_log_id = integer(), Comment = character())
   spec_cut <- spec[spec$ORIGIN == 'Assigned',]
   for (i in 1:nrow(spec_cut)){
+    # skip if variable already exists and overwrite = FALSE
+    if(!overwrite & paste0(spec_cut[i, 'VARIABLE'], '.res') %in% names(df)){
+      var_log[i, 'Var'] <- spec_cut[i, 'VARIABLE']
+      var_log[i, 'Action'] <- paste0('Variable: ', spec_cut[i, 'VARIABLE'], '.res already exists. Skip mapping.')
+      next
+    }
+    # get algorithm
     if (!is.na(spec_cut[i,'STUDY_SPECIFIC_ALGORITHM'])) {
       algorithm <- as.character(spec_cut[i,'STUDY_SPECIFIC_ALGORITHM'])
       var_log[i, 'Var'] <- spec_cut[i, 'VARIABLE']
@@ -137,22 +223,25 @@ ut_auto_var_mapping <- function(df, spec, codelist_defined){
       var_log[i, 'Algorithm_type'] <- 'Undefined'
       next
     }
-    algorithm <- sub("[\r\n]+$", "", algorithm) #remove trailing period if any
     
-    if (grepl("^One to one mapping of \\w+ as defined in the codelist.$", algorithm)){
+    algorithm <- sub("[\r\n]+$", "", algorithm) #remove trailing period if any
+    algorithm <- trimws(algorithm) #remove leading/trailing spaces
+    algorithm <- sub("[.,;]$", "", algorithm) #remove trailing semicolon if any
+    
+    if (grepl("^One to one mapping of \\w+ as defined in the codelist$", algorithm)){
       var_temp <- strsplit(algorithm, ' ')[[1]][6]
       var_name <- ifelse(paste0(var_temp, '.res') %in% colnames(df), paste0(var_temp, '.res'), var_temp)
       #print(var_name)
       res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
-      df[[res_var_name]] <- alg_mapping(res_var_name, var_name, codelist_defined, df[[var_name]])
-      var_log[i, 'Action'] <- paste0('Submission value derived by left join codelist with DECODE = ', var_name)
-    } else if (grepl("^One to one numeric mapping of \\w+ as defined in the code list.$", algorithm)){
+      df[[res_var_name]] <- alg_mapping(res_var_name, decode_var = var_name, codelist_defined, df[[var_name]])
+      var_log[i, 'Action'] <- paste0('Submission value derived by codelist with DECODE = ', var_name)
+    } else if (grepl("^One to one numeric mapping of \\w+ as defined in the code list$", algorithm)){
       var_temp <- strsplit(algorithm, ' ')[[1]][7]
       var_name <- ifelse(paste0(var_temp, '.res') %in% colnames(df), paste0(var_temp, '.res'), var_temp)
       #print(var_name)
       res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
-      df[[res_var_name]] <- alg_mapping(res_var_name, var_name, codelist_defined, df[[var_name]])
-      var_log[i, 'Action'] <- paste0('Submission value derived by left join codelist with DECODE = ', var_name)
+      df[[res_var_name]] <- alg_mapping(res_var_name, decode_var = var_name, codelist_defined, df[[var_name]], numeric = TRUE)
+      var_log[i, 'Action'] <- paste0('Submission value derived by codelist with DECODE = ', var_name, ' and converted to numeric')
     } else {
       warning(paste0('Algorithm for: ', spec_cut[i, 'VARIABLE'], ' not supported'))
       next
@@ -185,7 +274,7 @@ ut_auto_var_process <- function(df, spec){
     }
     algorithm <- sub("[\r\n]+$", "", algorithm) #remove trailing period if any
     algorithm <- trimws(algorithm) #remove leading/trailing spaces
-    algorithm <- sub(";$", "", algorithm) #remove trailing semicolon if any
+    algorithm <- sub("[;.]$", "", algorithm) #remove trailing semicolon if any
     
     if (grepl("^Copied from \\w+\\.\\w+\\.\\w+$", trimws(algorithm))){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
@@ -207,7 +296,7 @@ ut_auto_var_process <- function(df, spec){
       df[[res_var_name]] <- df[[toupper(var_name)]]
       var_log[i, 'Action'] <- paste0('Copied from ', var_name)
       
-    } else if(grepl("^Convert \\w+\\.\\w+\\.\\w+ to numeric datetime.$", algorithm)|
+    } else if(grepl("^Convert \\w+\\.\\w+\\.\\w+ to numeric datetime$", algorithm)|
               grepl('^Convert \\w+\\.\\w+\\.\\w+ to numeric datetime. If timepart is missing, set to "00:00:00"',trimws(algorithm))){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][2]
@@ -218,8 +307,10 @@ ut_auto_var_process <- function(df, spec){
       var_log[i, 'Action'] <- paste0('Value derived from: ', var_name)
       var_log[i, 'Comment'] <-  temp_list[[2]]
 
-    } else if (grepl("^Convert the date part of \\w+\\.\\w+\\.\\w+ to numeric date.$", trimws(algorithm))|
-               grepl("^Convert the date portion of \\w+\\.\\w+\\.\\w+ to a numeric date.$", trimws(algorithm))){
+    } else if (grepl("^Convert the date part of \\w+\\.\\w+\\.\\w+ to numeric date$", trimws(algorithm))|
+               grepl("^Convert the date portion of \\w+\\.\\w+\\.\\w+ to a numeric date$", trimws(algorithm)) | 
+               grepl("^Convert the date part of \\w+\\.\\w+\\.\\w+ to numeric date for observed records$", trimws(algorithm))
+               ){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][6]
       var_name <- strsplit(var_temp, '\\.')[[1]][3]
@@ -351,6 +442,32 @@ ut_append_data <- function(df_name, df_list, prim_df, keys = c('STUDYID', 'USUBJ
   }
 }
 
+ut_load_var <- function(spec){
+  algorithm <- c(spec$STUDY_SPECIFIC_ALGORITHM, spec$ANALYSIS_ALGORITHM)
+  var <- spec$VARIABLE
+  var_needed_raw <- unique(na.exclude(c(unlist(str_extract_all(algorithm, "\\b[a-zA-Z]{2,}\\.[a-zA-Z]{2,}\\.[a-zA-Z0-9]{2,}\\b")),
+                                    unlist(str_extract_all(algorithm, "\\b[a-zA-Z]{2,}\\.[a-zA-Z]{2,}\\.[a-zA-Z0-9]{2,}\\b")),
+                                    trimws(unlist(str_extract_all(algorithm, "\\b[a-zA-Z]{2,}\\.[a-zA-Z0-9]{2,}\\b"))),
+                                    trimws(unlist(str_extract_all(algorithm, "\\b [a-zA-Z]{2,}\\.[a-zA-Z0-9]{2,} \\b")))
+                                    )
+                                    )
+                           )
+  var_need_cap <- unique(na.exclude(c(trimws(unlist(str_extract_all(algorithm, "\\b[A-Z0-9]{3,}\\b")))
+                                      )
+                                    )
+                        )
+  var_needed_temp <- strsplit(var_needed_raw, '\\.')
+  var_needed <- sapply(var_needed_temp, function(x) x[[length(x)]])
+  var_res <- c(var, var_needed, var_need_cap)
+  var_res <- unique(var_res[!is.na(var_res)])
+  for (name in c('SUBJID', 'DOMAIN')){
+    if (name %in% var_res == FALSE){
+      var_res <- c(var_res, name)
+    }
+  }
+  return(var_res)
+}
+
 load_data <- function(adam_path, sdtm_path, df){
   
   # if (nchar(df) >= 4 & substr(tolower(df), 1,2) == 'ad'){ #if the name of the data set start with AD, read as Adam
@@ -391,10 +508,15 @@ load_data <- function(adam_path, sdtm_path, df){
   }
 }
 
-ut_read_data <- function(Adam_path, Sdtm_path, df_vec_df){
+ut_read_data <- function(Adam_path, Sdtm_path, df_vec_df, var_name = NULL){
   df_list <- lapply(1:nrow(df_vec_df), function (x) load_data(Adam_path, Sdtm_path, df_vec_df[x,]))
   names(df_list) <- df_vec_df$name
-  return(df_list)
+  if (is.null(var_name)){
+    return(df_list)
+  } else {
+    df_list <- lapply(df_list, function(x) x[, names(x) %in% var_name])
+    return(df_list)
+  }
 }
 
 ut_identify_df_name <- function(spec){
@@ -406,18 +528,21 @@ ut_identify_df_name <- function(spec){
   if (any(is.na(algorithm))){
     stop('Algorithm not defined for some variables')
   }
-  df_vec_sdtm <- unlist(str_extract_all(algorithm, "\\bSDTM\\.[a-zA-Z]+\\.[a-zA-Z]+\\b"))
+  df_vec_sdtm <- unlist(str_extract_all(algorithm, "\\bSDTM\\.[a-zA-Z]{2,}\\.[a-zA-Z]{2,}\\b"))
   df_vec_sdtm <- unique(df_vec_sdtm[!is.na(df_vec_sdtm)])
   df_vec_sdtm <- unique(sapply(df_vec_sdtm, function(x) strsplit(x, '\\.')[[1]][2]))
   
-  df_vec_adam <- unlist(str_extract_all(algorithm, "\\bADAM\\.[a-zA-Z]+\\.[a-zA-Z]+\\b"))
-  df_vec_adam <- c(df_vec_adam, unlist(str_extract_all(algorithm, "\\b[a-zA-Z]+\\.[a-zA-Z]+\\b")))
+  df_vec_adam <- unlist(str_extract_all(algorithm, "\\bADAM\\.[a-zA-Z]{2,}\\.[a-zA-Z]{2,}\\b"))
+  df_vec_adam <- c(df_vec_adam, trimws(unlist(str_extract_all(algorithm, "[a-zA-Z]{2,}\\.[a-zA-Z]{2,}[), ]"))))
   df_vec_adam <- unique(df_vec_adam[!is.na(df_vec_adam)])
   df_vec_adam <- df_vec_adam[!str_detect(df_vec_adam, 'SDTM')]
   df_vec_adam <- unique(sapply(df_vec_adam, function(x) strsplit(x, '\\.')[[1]][1]))
   
   df_vec_df <- data.frame(name = c(df_vec_sdtm, df_vec_adam),
-                          source = c(rep('SDTM', length(df_vec_sdtm)), rep('ADAM', length(df_vec_adam))))
+                          source = c(rep('SDTM', length(df_vec_sdtm)), rep('ADAM', length(df_vec_adam)))) %>%
+    arrange(name) %>%
+    distinct(name, .keep_all = TRUE) %>%
+    arrange(desc(source), name)
   return(df_vec_df)
 }
 
