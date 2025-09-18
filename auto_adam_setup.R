@@ -276,9 +276,14 @@ ut_auto_var_process <- function(df, spec){
     algorithm <- trimws(algorithm) #remove leading/trailing spaces
     algorithm <- sub("[;.]$", "", algorithm) #remove trailing semicolon if any
     
-    if (grepl("^Copied from \\w+\\.\\w+\\.\\w+$", trimws(algorithm))){
+    if (grepl("^Copied from \\w+\\.\\w+\\.\\w+$", trimws(algorithm))|
+        grepl("^Copy values from \\w+\\.\\w+\\.\\w+$", trimws(algorithm))|
+        grepl("^For observed records, set to \\w+\\.\\w+\\.\\w+$", trimws(algorithm))|
+        grepl("^For observed records, copy values from \\w+\\.\\w+\\.\\w+$", trimws(algorithm))
+        ){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
-      var_temp <- strsplit(algorithm, ' ')[[1]][3]
+      #var_temp <- strsplit(algorithm, ' ')[[1]][3]
+      var_temp <- str_extract(algorithm, "\\w+\\.\\w+\\.\\w+$")
       var_name <- strsplit(var_temp, '\\.')[[1]][3]
       #print(var_name)
       var_df <- strsplit(var_temp, '\\.')[[1]][2]
@@ -286,17 +291,17 @@ ut_auto_var_process <- function(df, spec){
       df[[res_var_name]] <- df[[toupper(var_name)]]
       var_log[i, 'Action'] <- paste0('Copied from ', var_name)
       
-    } else if (grepl("^Copy values from \\w+\\.\\w+\\.\\w+$", trimws(algorithm))){
+    } else if (grepl("^For observed records, round\\(\\w+\\.\\w+\\.\\w+,1e-8\\)$", trimws(algorithm))
+               ){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
-      var_temp <- strsplit(algorithm, ' ')[[1]][4]
+      var_temp <- str_extract(algorithm, "\\w+\\.\\w+\\.\\w+")
       var_name <- strsplit(var_temp, '\\.')[[1]][3]
       #print(var_name)
       var_df <- strsplit(var_temp, '\\.')[[1]][2]
       res_var_name <- paste0(spec_cut[i, 'VARIABLE'], '.res')
-      df[[res_var_name]] <- df[[toupper(var_name)]]
-      var_log[i, 'Action'] <- paste0('Copied from ', var_name)
-      
-    } else if(grepl("^Convert \\w+\\.\\w+\\.\\w+ to numeric datetime$", algorithm)|
+      df[[res_var_name]] <- round(df[[toupper(var_name)]], 1e-8)
+      var_log[i, 'Action'] <- paste0('Copied from ', var_name, '. And round to 1e-8')
+      } else if(grepl("^Convert \\w+\\.\\w+\\.\\w+ to numeric datetime$", algorithm)|
               grepl('^Convert \\w+\\.\\w+\\.\\w+ to numeric datetime. If timepart is missing, set to "00:00:00"',trimws(algorithm))){
       print(paste0('Algorithm for ', spec_cut[i, 'VARIABLE'], ' : ', algorithm))
       var_temp <- strsplit(algorithm, ' ')[[1]][2]
@@ -322,7 +327,7 @@ ut_auto_var_process <- function(df, spec){
     } 
     
     else {
-      warning(paste0('Algorithm for: ', spec_cut[i, 'VARIABLE'], ' not supported'))
+      print(paste0('Algorithm for: ', spec_cut[i, 'VARIABLE'], ' not supported'))
       next
     }
   }
@@ -468,7 +473,7 @@ ut_load_var <- function(spec){
   return(var_res)
 }
 
-load_data <- function(adam_path, sdtm_path, df){
+load_data <- function(adam_path, sdtm_path, df, id_match = TRUE){
   
   # if (nchar(df) >= 4 & substr(tolower(df), 1,2) == 'ad'){ #if the name of the data set start with AD, read as Adam
   #   df_path <- file.path(adam_path, paste0(tolower(df), '.sas7bdat'))
@@ -485,6 +490,10 @@ load_data <- function(adam_path, sdtm_path, df){
   name <- df[1]
   if (file.exists(df_path)){
     df_data <- read_sas(df_path)
+    if (id_match){
+      df_data$USUB_SUBid <- strsplit(df_data$USUBJID, '-')
+      df_data <- df_data %>% rowwise() %>% filter(SUBJID %in% USUB_SUBid) %>% select(-USUB_SUBid)
+    }
     print(paste0('Identify dataset: ', name, ' as: ', flag))
     print(paste0('File path: ', df_path))
     return(df_data)
@@ -494,23 +503,30 @@ load_data <- function(adam_path, sdtm_path, df){
     df_alt_path <- file.path(adam_path, paste0('adsl_i', '.sas7bdat'))
     if (file.exists(df_alt_path)){
       df_data <- read_sas(df_alt_path)
+      if (id_match){
+        df_data$USUB_SUBid <- strsplit(df_data$USUBJID, '-')
+        df_data <- df_data %>% rowwise() %>% filter(SUBJID %in% USUB_SUBid) %>% select(-USUB_SUBid)
+      }
       print(paste0('Identify dataset: ', name, ' as: ', flag))
       warning('Original file was not found. Read adsl_i instead')
       print(paste0('File path: ', df_path))
       return(df_data)
     } else{
       print(paste0('Identify dataset: ', name, ' as: ', flag))
-      stop(paste0('File not found: ', df_path))
+      warning(paste0('File not found: ', df_path))
+      return(NA)
     }
   } else {
     print(paste0('Identify dataset: ', name, ' as: ', flag))
-    stop(paste0('File not found: ', df_path))
+    warning(paste0('File not found: ', df_path))
+    return(NA)
   }
 }
 
-ut_read_data <- function(Adam_path, Sdtm_path, df_vec_df, var_name = NULL){
-  df_list <- lapply(1:nrow(df_vec_df), function (x) load_data(Adam_path, Sdtm_path, df_vec_df[x,]))
+ut_read_data <- function(Adam_path, Sdtm_path, df_vec_df, var_name = NULL, id_match = TRUE){
+  df_list <- lapply(1:nrow(df_vec_df), function (x) load_data(Adam_path, Sdtm_path, df_vec_df[x,], id_match = id_match))
   names(df_list) <- df_vec_df$name
+  df_list <- Filter(Negate(anyNA), df_list)
   if (is.null(var_name)){
     return(df_list)
   } else {
@@ -546,8 +562,9 @@ ut_identify_df_name <- function(spec){
   return(df_vec_df)
 }
 
-ut_adam_setup <- function(mode, compound, study, lock, domain,
-                       env = 'MAC', spec_name = 'amba_adam_specs_lilly.xlsx'){
+ut_adam_setup <- function(mode, compound, study, lock, domain, blind = 'shared',
+                       env = 'MAC', spec_name = 'amba_adam_specs_lilly.xlsx', 
+                       codelist_name = 'DEFINE_TERMINOLOGY'){
   library('tidyverse')
   library('haven') #Read SAS dataset
   library('readxl') #Read excel
@@ -560,19 +577,22 @@ ut_adam_setup <- function(mode, compound, study, lock, domain,
   
   if (toupper(env) == 'MAC'){
     root_path <- file.path('/Volumes/lillyce', mode, compound, study, lock)
+  } else if (toupper(env) == 'POIST') {
+    root_path <- file.path('/lillyce', mode, compound, study, lock)
   } else {
     stop('not supported yet')
   }
   
-  Adam_path <<- file.path(root_path, 'data', 'analysis', 'shared')
-  Sdtm_path <<- file.path(root_path, 'data', 'observed', 'shared')
+  Adam_path <<- file.path(root_path, 'data', 'analysis', blind)
+  Sdtm_path <<- file.path(root_path, 'data', 'observed', blind)
   Spec_path <<- file.path(root_path, 'documentation', 'specs', 'analysis')
   Program_path <<- file.path(root_path, 'programs', 'analysis')
   Log_path <<- file.path(root_path, 'logs', 'analysis')
   spec <- read_excel(file.path(Spec_path, spec_name), sheet = toupper(domain)) %>%
     filter(is.na(REMOVE)) %>%
     arrange(as.numeric(ORDER))
-  codelist_defined <- read_excel(file.path(Spec_path, spec_name), sheet = toupper('DEFINE_TERMINOLOGY')) %>%
+  codelist_defined <- read_excel(file.path(Spec_path, spec_name), 
+                                 sheet = toupper('DEFINE_TERMINOLOGY')) %>%
     filter(DATASET == toupper(domain))
   assign('spec', spec, envir = .GlobalEnv)
   assign('codelist_defined', codelist_defined, envir = .GlobalEnv)
